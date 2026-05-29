@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mmm-plaid-sync
+  labels:
+    app: mmm-plaid-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mmm-plaid-sync
+  template:
+    metadata:
+      labels:
+        app: mmm-plaid-sync
+    spec:
+      containers:
+        - name: sync
+          image: mmm-plaid-sync:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 47829
+          envFrom:
+            - secretRef:
+                name: mmm-plaid-secrets
+            - configMapRef:
+                name: mmm-plaid-config
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 47829
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 47829
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mmm-plaid-sync
+spec:
+  selector:
+    app: mmm-plaid-sync
+  ports:
+    - port: 80
+      targetPort: 47829
+  type: ClusterIP

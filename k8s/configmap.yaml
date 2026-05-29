@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mmm-plaid-config
+data:
+  PLAID_ENV: "production"
+  MONGODB_URI: "mongodb://your-external-host:27017"
+  MONGODB_DATABASE: "mmm"
+  HOST: "0.0.0.0"
+  PORT: "47829"
+  SYNC_INTERVAL_SECONDS: "300"
+  SYNC_ON_STARTUP: "true"
+  PLAID_DAYS_REQUESTED: "730"
