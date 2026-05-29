@@ -33,3 +33,5 @@ async def ensure_indexes() -> None:
     await db.transactions.create_index("transaction_id", unique=True)
     await db.transactions.create_index("item_id")
     await db.transactions.create_index("account_id")
+    await db.accounts.create_index("account_id", unique=True)
+    await db.accounts.create_index("item_id")

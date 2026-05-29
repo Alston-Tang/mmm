@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.db.account_fields import account_summary, display_name
 from app.db.bson_util import to_bson_safe
 from app.db.mongo import get_database
 
@@ -55,11 +56,28 @@ class ItemRepository:
         await db.items.update_one({"item_id": item_id}, {"$set": {"cursor": cursor}})
 
     @staticmethod
+    async def update_institution(
+        item_id: str,
+        *,
+        institution_id: str | None = None,
+        institution_name: str | None = None,
+    ) -> None:
+        db = get_database()
+        update: dict[str, Any] = {}
+        if institution_id:
+            update["institution_id"] = institution_id
+        if institution_name:
+            update["institution_name"] = institution_name
+        if update:
+            await db.items.update_one({"item_id": item_id}, {"$set": update})
+
+    @staticmethod
     async def mark_sync_result(
         item_id: str,
         *,
         error: str | None = None,
         institution_name: str | None = None,
+        institution_id: str | None = None,
     ) -> None:
         db = get_database()
         update: dict[str, Any] = {
@@ -68,6 +86,8 @@ class ItemRepository:
         }
         if institution_name:
             update["institution_name"] = institution_name
+        if institution_id:
+            update["institution_id"] = institution_id
         await db.items.update_one({"item_id": item_id}, {"$set": update})
 
     @staticmethod
@@ -80,6 +100,75 @@ class ItemRepository:
         return result.modified_count > 0
 
 
+class AccountRepository:
+    @staticmethod
+    async def upsert_many(
+        item_id: str,
+        accounts: list[dict[str, Any]],
+        *,
+        item_label: str | None = None,
+        institution_id: str | None = None,
+        institution_name: str | None = None,
+    ) -> int:
+        db = get_database()
+        now = _utcnow()
+        count = 0
+        for account in accounts:
+            account_id = account.get("account_id")
+            if not account_id:
+                continue
+            summary = account_summary(account)
+            doc = {
+                "account_id": account_id,
+                "item_id": item_id,
+                "item_label": item_label,
+                "institution_id": institution_id,
+                "institution_name": institution_name,
+                **summary,
+                "display_name": display_name(summary),
+                "data": to_bson_safe(account),
+                "updated_at": now,
+            }
+            await db.accounts.update_one(
+                {"account_id": account_id},
+                {"$set": doc},
+                upsert=True,
+            )
+            count += 1
+        return count
+
+    @staticmethod
+    async def get_by_account_id(account_id: str) -> dict[str, Any] | None:
+        db = get_database()
+        return await db.accounts.find_one({"account_id": account_id})
+
+    @staticmethod
+    async def list_for_item(item_id: str) -> list[dict[str, Any]]:
+        db = get_database()
+        cursor = db.accounts.find({"item_id": item_id}).sort("name", 1)
+        return await cursor.to_list(length=None)
+
+    @staticmethod
+    def summaries_by_id(accounts: list[dict[str, Any]], *, item_label: str | None = None) -> dict[str, dict[str, Any]]:
+        """Map account_id → denormalized fields for transaction writes."""
+        result: dict[str, dict[str, Any]] = {}
+        for account in accounts:
+            account_id = account.get("account_id")
+            if not account_id:
+                continue
+            summary = account_summary(account)
+            result[account_id] = {
+                "account_name": summary.get("name"),
+                "account_official_name": summary.get("official_name"),
+                "account_type": summary.get("type"),
+                "account_subtype": summary.get("subtype"),
+                "account_mask": summary.get("mask"),
+                "account_display_name": display_name(summary),
+                "item_label": item_label,
+            }
+        return result
+
+
 class TransactionRepository:
     @staticmethod
     async def apply_sync(
@@ -88,6 +177,7 @@ class TransactionRepository:
         added: list[dict[str, Any]],
         modified: list[dict[str, Any]],
         removed: list[dict[str, Any]],
+        account_fields: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, int]:
         db = get_database()
         now = _utcnow()
@@ -97,17 +187,19 @@ class TransactionRepository:
             tx_id = tx.get("transaction_id")
             if not tx_id:
                 continue
+            fields: dict[str, Any] = {
+                "transaction_id": tx_id,
+                "item_id": item_id,
+                "account_id": tx.get("account_id"),
+                "data": to_bson_safe(tx),
+                "updated_at": now,
+            }
+            acct_id = tx.get("account_id")
+            if account_fields and acct_id and acct_id in account_fields:
+                fields.update(account_fields[acct_id])
             await db.transactions.update_one(
                 {"transaction_id": tx_id},
-                {
-                    "$set": {
-                        "transaction_id": tx_id,
-                        "item_id": item_id,
-                        "account_id": tx.get("account_id"),
-                        "data": to_bson_safe(tx),
-                        "updated_at": now,
-                    }
-                },
+                {"$set": fields},
                 upsert=True,
             )
             stats["upserted"] += 1

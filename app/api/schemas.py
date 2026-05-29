@@ -23,6 +23,22 @@ class ItemResponse(BaseModel):
     last_sync_at: datetime | None = None
     last_sync_error: str | None = None
     transaction_count: int | None = None
+    account_count: int | None = None
+
+
+class AccountResponse(BaseModel):
+    account_id: str
+    item_id: str
+    item_label: str | None = None
+    display_name: str | None = None
+    name: str | None = None
+    official_name: str | None = None
+    type: str | None = None
+    subtype: str | None = None
+    mask: str | None = None
+    institution_name: str | None = None
+    current_balance: float | None = None
+    updated_at: datetime | None = None
 
 
 class LinkExchangeResponse(BaseModel):

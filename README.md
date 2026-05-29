@@ -19,7 +19,8 @@ flowchart LR
 ```
 
 - **Items** collection: linked banks (`access_token`, `cursor`, label, sync status)
-- **Transactions** collection: upserted by `transaction_id`
+- **Accounts** collection: account metadata from `/accounts/get` + sync (`name`, `type`, `mask`, balances, full `data`)
+- **Transactions** collection: upserted by `transaction_id`, with denormalized `account_display_name`, `account_mask`, etc.
 - **Worker**: polls all active items every `SYNC_INTERVAL_SECONDS` (default 5 min)
 - **Add account**: `POST /api/v1/link/exchange` or built-in UI at `/api/v1/link`
 
@@ -83,7 +84,9 @@ curl -X POST http://localhost:47829/api/v1/link/exchange \
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/health` | Health + MongoDB ping |
-| GET | `/api/v1/items` | List linked accounts |
+| GET | `/api/v1/items` | List linked banks (Items) |
+| GET | `/api/v1/items/{item_id}/accounts` | Accounts for an Item |
+| GET | `/api/v1/accounts/{account_id}` | Resolve `account_id` → name, mask, type |
 | POST | `/api/v1/link/token` | Create Plaid Link token |
 | POST | `/api/v1/link/exchange` | Add account (`public_token`, `label`) |
 | POST | `/api/v1/sync` | Sync all items now (`?reset=true` for full replay) |
@@ -118,6 +121,25 @@ kubectl apply -f k8s/deployment.yaml
 ```
 
 Set `MONGODB_URI` in the ConfigMap to your external MongoDB instance.
+
+## Resolve which account a transaction belongs to
+
+Each transaction stores:
+
+- `account_id` — Plaid account id (join key)
+- `account_display_name`, `account_name`, `account_mask`, `account_type`, `account_subtype`, `item_label` — denormalized on sync
+
+Lookup the account document:
+
+```javascript
+db.accounts.findOne({ account_id: "5kv581YD7BhmvrbR8j4zsOa3v1JzXbc5z4Omr" })
+```
+
+Or read fields directly on the transaction after the next sync. Re-sync existing data to backfill:
+
+```bash
+curl -X POST "http://localhost:47829/api/v1/sync?reset=false"
+```
 
 ## Reset cursor / full re-sync
 

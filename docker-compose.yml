@@ -5,4 +5,4 @@ services:
     ports:
       - "${PORT:-47829}:${PORT:-47829}"
     env_file:
-      - stack.env
+      - .env

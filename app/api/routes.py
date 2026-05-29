@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app.api.schemas import (
+    AccountResponse,
     HealthResponse,
     ItemResponse,
     LinkExchangeRequest,
@@ -15,7 +16,7 @@ from app.api.schemas import (
     SyncTriggerResponse,
 )
 from app.db.mongo import get_database
-from app.db.repository import ItemRepository, TransactionRepository
+from app.db.repository import AccountRepository, ItemRepository, TransactionRepository
 from app.plaid.link import create_link_token, exchange_public_token
 from app.sync.service import sync_all_items, sync_item
 from app.worker.sync_worker import SyncWorker
@@ -47,20 +48,57 @@ async def list_items() -> list[ItemResponse]:
     items = await ItemRepository.list_active()
     result: list[ItemResponse] = []
     for item in items:
-        count = await TransactionRepository.count_for_item(item["item_id"])
+        item_id = item["item_id"]
+        tx_count = await TransactionRepository.count_for_item(item_id)
+        acct_count = len(await AccountRepository.list_for_item(item_id))
         result.append(
             ItemResponse(
-                item_id=item["item_id"],
+                item_id=item_id,
                 label=item["label"],
                 institution_name=item.get("institution_name"),
                 status=item["status"],
                 created_at=item.get("created_at"),
                 last_sync_at=item.get("last_sync_at"),
                 last_sync_error=item.get("last_sync_error"),
-                transaction_count=count,
+                transaction_count=tx_count,
+                account_count=acct_count,
             )
         )
     return result
+
+
+def _to_account_response(doc: dict) -> AccountResponse:
+    return AccountResponse(
+        account_id=doc["account_id"],
+        item_id=doc["item_id"],
+        item_label=doc.get("item_label"),
+        display_name=doc.get("display_name"),
+        name=doc.get("name"),
+        official_name=doc.get("official_name"),
+        type=doc.get("type"),
+        subtype=doc.get("subtype"),
+        mask=doc.get("mask"),
+        institution_name=doc.get("institution_name"),
+        current_balance=doc.get("current_balance"),
+        updated_at=doc.get("updated_at"),
+    )
+
+
+@router.get("/accounts/{account_id}", response_model=AccountResponse)
+async def get_account(account_id: str) -> AccountResponse:
+    doc = await AccountRepository.get_by_account_id(account_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return _to_account_response(doc)
+
+
+@router.get("/items/{item_id}/accounts", response_model=list[AccountResponse])
+async def list_item_accounts(item_id: str) -> list[AccountResponse]:
+    item = await ItemRepository.get_by_item_id(item_id)
+    if not item or item.get("status") != "active":
+        raise HTTPException(status_code=404, detail="Item not found")
+    accounts = await AccountRepository.list_for_item(item_id)
+    return [_to_account_response(a) for a in accounts]
 
 
 @router.post("/link/token", response_model=LinkTokenResponse)
