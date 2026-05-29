@@ -1,4 +1,5 @@
 .env
+# stack.env is committed with placeholders (override in Portainer, not in git)
 .venv/
 __pycache__/
 *.pyc

@@ -26,11 +26,19 @@ flowchart LR
 ## Quick start (Docker)
 
 ```bash
-cp .env.example .env
-# Edit .env: PLAID_* and MONGODB_URI (external MongoDB — not included in compose)
-
+# Edit stack.env (committed placeholders) with your Plaid + MongoDB values
 docker compose up --build
 ```
+
+For local runs without Compose, copy `stack.env` to `.env` (`.env` is gitignored).
+
+## Portainer
+
+1. Deploy this repo as a **Stack** (use `docker-compose.yml`).
+2. Set environment variables from **`stack.env`** — either upload the file or paste/edit each key in Portainer’s stack env UI (replace placeholders).
+3. `PORT` in `stack.env` controls both the container port and the published host mapping (`${PORT}:${PORT}`).
+
+Do not commit real secrets into `stack.env` on a public repo; override values only in Portainer or a private env file on the host.
 
 - API: http://localhost:47829
 - Docs: http://localhost:47829/docs

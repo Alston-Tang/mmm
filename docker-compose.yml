@@ -3,9 +3,6 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "47829:47829"
+      - "${PORT:-47829}:${PORT:-47829}"
     env_file:
-      - .env
-    environment:
-      HOST: 0.0.0.0
-      PORT: 47829
+      - stack.env
