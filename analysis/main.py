@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
-from app.api.routes import router
-from app.config import get_settings
-from app.db.mongo import close_client, ensure_indexes
-from app.worker.sync_worker import SyncWorker
+from analysis.api.routes import router
+from analysis.config import get_settings
+from analysis.db.mongo import close_client, ensure_indexes
+from analysis.worker.analysis_worker import AnalysisWorker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,17 +20,17 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_indexes()
-    worker = SyncWorker()
+    worker = AnalysisWorker()
     worker.start()
-    app.state.sync_worker = worker
+    app.state.analysis_worker = worker
     yield
     await worker.stop()
     await close_client()
 
 
 app = FastAPI(
-    title="MMM Plaid Sync Service",
-    description="Continuously sync Plaid transactions to MongoDB",
+    title="MMM Transaction Analysis Service",
+    description="Analyze Plaid transactions via LLM and produce normalized transaction records",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -40,17 +40,17 @@ app.include_router(router)
 @app.get("/")
 async def root():
     return {
-        "service": "mmm-plaid-sync",
+        "service": "mmm-transaction-analysis",
         "docs": "/docs",
-        "link_ui": "/api/v1/link",
         "health": "/api/v1/health",
+        "status": "/api/v1/status",
     }
 
 
 def main() -> None:
     settings = get_settings()
     uvicorn.run(
-        "app.main:app",
+        "analysis.main:app",
         host=settings.host,
         port=settings.port,
         reload=False,

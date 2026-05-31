@@ -5,7 +5,7 @@ from functools import lru_cache
 import plaid
 from plaid.api import plaid_api
 
-from app.config import get_settings
+from sync.config import get_settings
 
 _ENV_MAP = {
     "sandbox": plaid.Environment.Sandbox,

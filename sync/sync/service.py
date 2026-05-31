@@ -4,9 +4,9 @@ import asyncio
 import logging
 from typing import Any
 
-from app.db.repository import AccountRepository, ItemRepository, TransactionRepository
-from app.plaid.accounts import fetch_accounts
-from app.plaid.sync import fetch_sync_pages
+from sync.db.repository import AccountRepository, ItemRepository, TransactionRepository
+from sync.plaid.accounts import fetch_accounts
+from sync.plaid.sync import fetch_sync_pages
 
 logger = logging.getLogger(__name__)
 

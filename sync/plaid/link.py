@@ -6,8 +6,8 @@ from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.products import Products
 
-from app.config import get_settings
-from app.plaid.client import get_plaid_client
+from sync.config import get_settings
+from sync.plaid.client import get_plaid_client
 
 
 def create_link_token(*, user_id: str = "default-user") -> str:

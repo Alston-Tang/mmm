@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from app.api.schemas import (
+from sync.api.schemas import (
     AccountResponse,
     HealthResponse,
     ItemResponse,
@@ -15,11 +15,11 @@ from app.api.schemas import (
     LinkTokenResponse,
     SyncTriggerResponse,
 )
-from app.db.mongo import get_database
-from app.db.repository import AccountRepository, ItemRepository, TransactionRepository
-from app.plaid.link import create_link_token, exchange_public_token
-from app.sync.service import sync_all_items, sync_item
-from app.worker.sync_worker import SyncWorker
+from sync.db.mongo import get_database
+from sync.db.repository import AccountRepository, ItemRepository, TransactionRepository
+from sync.plaid.link import create_link_token, exchange_public_token
+from sync.sync.service import sync_all_items, sync_item
+from sync.worker.sync_worker import SyncWorker
 
 logger = logging.getLogger(__name__)
 

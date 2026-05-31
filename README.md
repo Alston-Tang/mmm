@@ -50,10 +50,10 @@ Do not commit real secrets into `stack.env` on a public repo; override values on
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-sync.txt
 # Set MONGODB_URI to your external MongoDB in .env
 cp .env.example .env
-python -m app.main
+python -m sync.main
 ```
 
 ## Add a bank account (while running)
@@ -113,7 +113,7 @@ curl -X POST http://localhost:47829/api/v1/link/exchange \
 ## Kubernetes
 
 ```bash
-docker build -t mmm-plaid-sync:latest .
+docker build -f Dockerfile.sync -t mmm-plaid-sync:latest .
 kubectl apply -f k8s/configmap.yaml
 # Create k8s/secret.yaml from k8s/secret.example.yaml
 kubectl apply -f k8s/secret.yaml
@@ -152,7 +152,7 @@ curl -X POST http://localhost:47829/api/v1/items/{item_id}/reset
 ## Project layout
 
 ```
-app/
+sync/
   main.py              # FastAPI entry + lifespan
   config.py            # Settings from env
   api/routes.py        # HTTP API + Link UI
@@ -160,7 +160,9 @@ app/
   db/                  # MongoDB + repositories
   sync/service.py      # Sync orchestration
   worker/sync_worker.py
-Dockerfile
+analysis/              # LLM transaction analysis service
+Dockerfile.sync
+Dockerfile.analysis
 docker-compose.yml
 k8s/
 scripts/               # Optional legacy CLI helpers

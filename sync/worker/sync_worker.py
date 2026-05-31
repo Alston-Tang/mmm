@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.config import get_settings
-from app.sync.service import sync_all_items
+from sync.config import get_settings
+from sync.sync.service import sync_all_items
 
 logger = logging.getLogger(__name__)
 

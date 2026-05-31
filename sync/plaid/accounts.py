@@ -4,8 +4,8 @@ from typing import Any
 
 from plaid.model.accounts_get_request import AccountsGetRequest
 
-from app.plaid.client import get_plaid_client
-from app.plaid.sync import _to_dict
+from sync.plaid.client import get_plaid_client
+from sync.plaid.sync import _to_dict
 
 
 def fetch_accounts(access_token: str) -> dict[str, Any]:

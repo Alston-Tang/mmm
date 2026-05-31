@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.db.account_fields import account_summary, display_name
-from app.db.bson_util import to_bson_safe
-from app.db.mongo import get_database
+from sync.db.account_fields import account_summary, display_name
+from sync.db.bson_util import to_bson_safe
+from sync.db.mongo import get_database
 
 
 def _utcnow() -> datetime:

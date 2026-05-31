@@ -1,8 +1,22 @@
 services:
   sync:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.sync
     restart: unless-stopped
     ports:
       - "${PORT:-47829}:${PORT:-47829}"
     env_file:
       - .env
+
+  analysis:
+    build:
+      context: .
+      dockerfile: Dockerfile.analysis
+    restart: unless-stopped
+    ports:
+      - "${ANALYSIS_PORT:-47830}:${ANALYSIS_PORT:-47830}"
+    env_file:
+      - .env
+    environment:
+      PORT: ${ANALYSIS_PORT:-47830}

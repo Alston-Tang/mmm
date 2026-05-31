@@ -5,7 +5,7 @@ from typing import Any
 
 from plaid.model.transactions_sync_request import TransactionsSyncRequest
 
-from app.plaid.client import get_plaid_client
+from sync.plaid.client import get_plaid_client
 
 
 @dataclass
