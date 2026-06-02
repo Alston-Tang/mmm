@@ -5,11 +5,12 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
-from sync.api.routes import router
-from sync.config import get_settings
-from sync.db.mongo import close_client, ensure_indexes
-from sync.worker.sync_worker import SyncWorker
+from viewer.api.routes import router
+from viewer.config import get_settings
+from viewer.db.mongo import close_client
+from viewer.ui import VIEWER_HTML
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,39 +20,39 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await ensure_indexes()
-    worker = SyncWorker()
-    worker.start()
-    app.state.sync_worker = worker
     yield
-    await worker.stop()
     await close_client()
 
 
 app = FastAPI(
-    title="MMM Plaid Sync Service",
-    description="Continuously sync Plaid transactions to MongoDB",
+    title="MMM Transaction Viewer",
+    description="Browse analyzed transactions with filters and sorting",
     version="1.0.0",
     lifespan=lifespan,
 )
 app.include_router(router)
 
 
-@app.get("/")
-async def root():
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def viewer_page() -> HTMLResponse:
+    return HTMLResponse(VIEWER_HTML)
+
+
+@app.get("/about")
+async def about():
     return {
-        "service": "mmm-plaid-sync",
+        "service": "mmm-transaction-viewer",
+        "ui": "/",
         "docs": "/docs",
-        "link_ui": "/api/v1/link",
-        "wechat_ui": "/api/v1/wechat",
         "health": "/api/v1/health",
+        "api": "/api/v1/transactions",
     }
 
 
 def main() -> None:
     settings = get_settings()
     uvicorn.run(
-        "sync.main:app",
+        "viewer.main:app",
         host=settings.host,
         port=settings.port,
         reload=False,

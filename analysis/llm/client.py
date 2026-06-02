@@ -46,13 +46,20 @@ Predefined categories:
 
 Plaid amount convention: positive amount = money leaving the account, negative = money entering.
 
-Respond with valid JSON matching this schema:
+WeChat Pay (微信支付 / WeiXin):
+- Many credit-card charges are payments processed through WeChat Pay; the card statement may only show "WECHAT PAY", "TENPAY", or similar while the real merchant appears in WeChat records.
+- For EACH transaction, set likely_wechat_payment=true when the charge likely settled through WeChat Pay (directly or via a card linked in WeChat).
+- Include wechat_detection_reason when likely_wechat_payment=true.
+
+When wechat_context is provided for a transaction, it lists imported WeChat Pay records near the Plaid date (dates may differ by 1-3 days because of settlement timing). Match the best record(s), use counterparty/product for category and description, and increase confidence when the match is clear.
 {{
   "results": [
     {{
       "transaction_id": "id1",
       "action": "create" | "needs_attention",
       "attention_reason": "only if needs_attention",
+      "likely_wechat_payment": false,
+      "wechat_detection_reason": "only if likely_wechat_payment",
       "analyzed_transactions": [
         {{
           "flow_direction": "reduction",
@@ -86,7 +93,9 @@ class LLMClient:
         transactions: list[dict[str, Any]],
         *,
         search_context: dict[str, Any] | None = None,
+        wechat_context: dict[str, list[dict[str, Any]]] | None = None,
         pass_label: str = "initial",
+        user_guidance: dict[str, str] | None = None,
     ) -> LLMAnalysisResponse:
         if not transactions:
             return LLMAnalysisResponse(results=[])
@@ -95,15 +104,18 @@ class LLMClient:
             confidence_threshold=self._settings.confidence_threshold,
             categories="\n".join(f"- {c}" for c in PREDEFINED_CATEGORIES),
         )
-        user_payload = self._format_user_payload(transactions, search_context)
+        user_payload = self._format_user_payload(
+            transactions, search_context, user_guidance, wechat_context,
+        )
         tx_ids = [tx.get("transaction_id") for tx in transactions]
         logger.info(
-            "LLM analyze request (%s): model=%s transactions=%d ids=%s search=%s",
+            "LLM analyze request (%s): model=%s transactions=%d ids=%s search=%s wechat=%s",
             pass_label,
             self._settings.llm_model,
             len(transactions),
             tx_ids,
             bool(search_context and search_context.get("search_results")),
+            bool(wechat_context),
         )
         logger.debug("LLM input (system):\n%s", system)
         logger.info("LLM input (user):\n%s", user_payload)
@@ -115,16 +127,39 @@ class LLMClient:
     def _format_user_payload(
         transactions: list[dict[str, Any]],
         search_context: dict[str, Any] | None,
+        user_guidance: dict[str, str] | None = None,
+        wechat_context: dict[str, list[dict[str, Any]]] | None = None,
     ) -> str:
-        payload: dict[str, Any] = {
-            "transactions": LLMClient._simplify_transactions(transactions),
-        }
+        simplified = LLMClient._simplify_transactions(transactions)
+        if user_guidance:
+            for tx in simplified:
+                tx_id = tx.get("transaction_id")
+                if tx_id and tx_id in user_guidance:
+                    tx["human_guidance"] = user_guidance[tx_id]
+        if wechat_context:
+            for tx in simplified:
+                tx_id = tx.get("transaction_id")
+                if tx_id and tx_id in wechat_context:
+                    tx["wechat_context"] = wechat_context[tx_id]
+
+        payload: dict[str, Any] = {"transactions": simplified}
         if search_context and search_context.get("search_results"):
             payload["web_search_context"] = search_context["search_results"]
             payload["_note"] = (
                 "web_search_context contains internet search results for ambiguous merchants. "
                 "Use this to clarify transaction type, category, and duration. "
                 "Increase confidence if search results are conclusive."
+            )
+        if user_guidance:
+            payload["_human_guidance_note"] = (
+                "Some transactions include human_guidance from a prior review. "
+                "Follow that guidance when categorizing; treat it as authoritative context."
+            )
+        if wechat_context:
+            payload["_wechat_context_note"] = (
+                "Some transactions include wechat_context: imported WeChat Pay bill rows near the "
+                "Plaid date (± a few days). Use them to identify the real merchant/category when "
+                "the card charge went through WeChat Pay. Amounts are in CNY."
             )
         return json.dumps(payload, indent=2)
 
@@ -165,7 +200,6 @@ class LLMClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "response_format": {"type": "json_object"},
             "temperature": 0.1,
             "max_tokens": self._settings.llm_max_tokens,
         }
@@ -175,6 +209,17 @@ class LLMClient:
                 response = await client.post(url, headers=headers, json=body)
                 response.raise_for_status()
                 data = response.json()
+        except httpx.HTTPStatusError as exc:
+            response_text = ""
+            if exc.response is not None:
+                response_text = exc.response.text[:2000]
+            logger.error(
+                "LLM request failed with HTTP status error: %s\nResponse body:\n%s\nLLM input (user):\n%s",
+                exc,
+                response_text,
+                user,
+            )
+            raise
         except httpx.HTTPError as exc:
             logger.error(
                 "LLM request failed: %s\nLLM input (user):\n%s",

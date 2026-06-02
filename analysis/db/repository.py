@@ -77,6 +77,8 @@ class AnalysisStateRepository:
         analysis_id: str | None = None,
         confidence: float | None = None,
         attention_reason: str | None = None,
+        user_comment: str | None = None,
+        clear_user_comment: bool = False,
     ) -> None:
         now = _utcnow()
         update: dict[str, Any] = {
@@ -84,6 +86,7 @@ class AnalysisStateRepository:
             "status": status.value,
             "updated_at": now,
         }
+        unset: dict[str, str] = {}
         if analyzed_transaction_ids is not None:
             update["analyzed_transaction_ids"] = analyzed_transaction_ids
         if analysis_id is not None:
@@ -92,13 +95,26 @@ class AnalysisStateRepository:
             update["confidence"] = confidence
         if attention_reason is not None:
             update["attention_reason"] = attention_reason
+        if user_comment is not None:
+            update["user_comment"] = user_comment
+        if clear_user_comment:
+            unset["user_comment"] = ""
         if status in (ProcessingStatus.RESOLVED, ProcessingStatus.NEEDS_ATTENTION):
             update["processed_at"] = now
+        if status == ProcessingStatus.PENDING_RETRY:
+            update["processed_at"] = None
+            unset["attention_reason"] = ""
+            unset["analyzed_transaction_ids"] = ""
+            unset["analysis_id"] = ""
+            unset["confidence"] = ""
 
         state = get_analysis_collection("transaction_analysis_state")
+        update_doc: dict[str, Any] = {"$set": update}
+        if unset:
+            update_doc["$unset"] = unset
         await state.update_one(
             {"transaction_id": transaction_id},
-            {"$set": update},
+            update_doc,
             upsert=True,
         )
 
@@ -112,6 +128,7 @@ class AnalysisStateRepository:
             ProcessingStatus.PENDING.value: 0,
             ProcessingStatus.RESOLVED.value: 0,
             ProcessingStatus.NEEDS_ATTENTION.value: 0,
+            ProcessingStatus.PENDING_RETRY.value: 0,
         }
         async for doc in state.aggregate(pipeline):
             result[doc["_id"]] = doc["count"]
@@ -133,6 +150,33 @@ class AnalysisStateRepository:
             {"transaction_id": transaction_id, "status": ProcessingStatus.NEEDS_ATTENTION.value},
         )
         return result.deleted_count > 0
+
+    @staticmethod
+    async def get_user_comments(transaction_ids: list[str]) -> dict[str, str]:
+        if not transaction_ids:
+            return {}
+        state = get_analysis_collection("transaction_analysis_state")
+        cursor = state.find(
+            {
+                "transaction_id": {"$in": transaction_ids},
+                "status": ProcessingStatus.PENDING_RETRY.value,
+                "user_comment": {"$exists": True, "$ne": ""},
+            },
+            {"transaction_id": 1, "user_comment": 1},
+        )
+        return {
+            doc["transaction_id"]: doc["user_comment"]
+            async for doc in cursor
+            if doc.get("user_comment")
+        }
+
+    @staticmethod
+    async def queue_for_retry(transaction_id: str, comment: str) -> None:
+        await AnalysisStateRepository.upsert(
+            transaction_id,
+            status=ProcessingStatus.PENDING_RETRY,
+            user_comment=comment.strip(),
+        )
 
 
 class AnalyzedTransactionRepository:
@@ -166,6 +210,16 @@ class AnalyzedTransactionRepository:
     @staticmethod
     async def count() -> int:
         return await get_analysis_collection("analyzed_transactions").count_documents({})
+
+    @staticmethod
+    async def delete_by_source_id(transaction_id: str) -> int:
+        result = await get_analysis_collection("analyzed_transactions").delete_many(
+            {"$or": [
+                {"source_transaction_id": transaction_id},
+                {"source_transaction_ids": transaction_id},
+            ]},
+        )
+        return result.deleted_count
 
 
 class AnalysisReviewRepository:

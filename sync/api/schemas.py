@@ -54,3 +54,14 @@ class SyncTriggerResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     mongodb: str
+
+
+class WeChatUploadResponse(BaseModel):
+    import_id: str
+    filename: str
+    inserted: int
+    skipped_duplicates: int
+    total_in_file: int
+    stored_total: int
+    date_from: str | None = None
+    date_to: str | None = None

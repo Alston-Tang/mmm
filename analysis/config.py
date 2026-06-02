@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     search_max_concurrent: int = 3
     search_timeout_seconds: int = 15
 
+    # WeChat Pay context (optional — enriches likely WeChat credit-card charges)
+    wechat_enabled: bool = True
+    wechat_date_window_days: int = 3
+    wechat_amount_tolerance_ratio: float = 0.15
+    wechat_usd_cny_rate: float = 7.2
+    wechat_max_candidates: int = 15
+
     # Service
     host: str = "0.0.0.0"
     port: int = 47830

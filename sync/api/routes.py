@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
 from sync.api.schemas import (
@@ -14,11 +15,14 @@ from sync.api.schemas import (
     LinkExchangeResponse,
     LinkTokenResponse,
     SyncTriggerResponse,
+    WeChatUploadResponse,
 )
 from sync.db.mongo import get_database
 from sync.db.repository import AccountRepository, ItemRepository, TransactionRepository
+from sync.db.wechat_repository import WeChatTransactionRepository
 from sync.plaid.link import create_link_token, exchange_public_token
 from sync.sync.service import sync_all_items, sync_item
+from sync.wechat.parser import WeChatBillParseError, parse_wechat_bill
 from sync.worker.sync_worker import SyncWorker
 
 logger = logging.getLogger(__name__)
@@ -200,6 +204,7 @@ LINK_PAGE_HTML = """<!DOCTYPE html>
 <body>
   <h1>Link a bank account</h1>
   <p>Adds an account to the running sync service (saved in MongoDB).</p>
+  <p><a href="/api/v1/wechat">Upload WeChat transactions</a></p>
   <label>Label <input id="label" placeholder="e.g. chase-checking" /></label>
   <button id="open">Connect with Plaid</button>
   <div id="out"></div>
@@ -248,3 +253,106 @@ LINK_PAGE_HTML = """<!DOCTYPE html>
 @router.get("/link", response_class=HTMLResponse, include_in_schema=False)
 async def link_page() -> HTMLResponse:
     return HTMLResponse(LINK_PAGE_HTML)
+
+
+WECHAT_PAGE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MMM — Upload WeChat transactions</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    input, button { font-size: 1rem; padding: 0.45rem; margin: 0.25rem 0; width: 100%; box-sizing: border-box; }
+    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; font-size: 0.85rem; white-space: pre-wrap; }
+    .ok { color: #060; }
+    .err { color: #a00; }
+    .meta { color: #666; font-size: 0.9rem; }
+    a { color: #0366d6; }
+  </style>
+</head>
+<body>
+  <h1>Upload WeChat transactions</h1>
+  <p class="meta">
+    Import a personal WeChat Pay bill XLSX (from 微信 → 服务 → 钱包 → 账单 → 下载账单).
+    These records are stored separately and used as context when analyzing credit card charges.
+  </p>
+  <p><a href="/api/v1/link">Link bank account</a></p>
+  <form id="upload-form">
+    <label>WeChat bill XLSX<input type="file" id="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /></label>
+    <button type="submit">Upload</button>
+  </form>
+  <div id="out"></div>
+  <script>
+    const api = window.location.origin;
+    document.getElementById('upload-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('file');
+      const out = document.getElementById('out');
+      if (!fileInput.files.length) return;
+      const file = fileInput.files[0];
+      out.innerHTML = '<p>Uploading…</p>';
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const res = await fetch(api + '/api/v1/wechat/upload', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) {
+          out.innerHTML = '<pre class="err">' + JSON.stringify(data, null, 2) + '</pre>';
+          return;
+        }
+        out.innerHTML = '<pre class="ok">' + JSON.stringify(data, null, 2) + '</pre>';
+      } catch (err) {
+        out.innerHTML = '<pre class="err">' + err + '</pre>';
+      }
+    });
+  </script>
+</body>
+</html>"""
+
+
+@router.get("/wechat", response_class=HTMLResponse, include_in_schema=False)
+async def wechat_upload_page() -> HTMLResponse:
+    return HTMLResponse(WECHAT_PAGE_HTML)
+
+
+@router.post("/wechat/upload", response_model=WeChatUploadResponse)
+async def upload_wechat_bill(file: UploadFile = File(...)) -> WeChatUploadResponse:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    lower_name = file.filename.lower()
+    if not (lower_name.endswith(".xlsx") or lower_name.endswith(".csv")):
+        raise HTTPException(status_code=400, detail="Only XLSX or CSV WeChat bill files are supported")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        parsed = parse_wechat_bill(raw, filename=file.filename)
+    except WeChatBillParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    import_id = str(uuid.uuid4())
+    stats = await WeChatTransactionRepository.insert_import_batch(
+        import_id=import_id,
+        source_filename=file.filename,
+        transactions=parsed,
+    )
+    dates = sorted({tx.transaction_date for tx in parsed})
+    stored_total = await WeChatTransactionRepository.count()
+
+    return WeChatUploadResponse(
+        import_id=import_id,
+        filename=file.filename,
+        inserted=stats["inserted"],
+        skipped_duplicates=stats["skipped_duplicates"],
+        total_in_file=stats["total_in_file"],
+        stored_total=stored_total,
+        date_from=dates[0] if dates else None,
+        date_to=dates[-1] if dates else None,
+    )
+
+
+@router.get("/wechat/transactions")
+async def list_wechat_transactions(limit: int = 50) -> list[dict]:
+    return await WeChatTransactionRepository.list_recent(limit=min(limit, 200))

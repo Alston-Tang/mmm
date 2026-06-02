@@ -19,8 +19,10 @@ class AnalysisStatusResponse(BaseModel):
     by_status: dict[str, int]
     analyzed_transactions_total: int
     reviews_total: int
+    wechat_transactions_total: int = 0
     confidence_threshold: float
     search_enabled: bool
+    wechat_enabled: bool = True
 
 
 class AnalysisTriggerResponse(BaseModel):

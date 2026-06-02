@@ -17,6 +17,7 @@ class ProcessingStatus(str, Enum):
     PENDING = "pending"
     RESOLVED = "resolved"
     NEEDS_ATTENTION = "needs_attention"
+    PENDING_RETRY = "pending_retry"
 
 
 class DurationUnit(str, Enum):
@@ -62,6 +63,7 @@ class TransactionAnalysisState(BaseModel):
     analysis_id: str | None = None
     confidence: float | None = None
     attention_reason: str | None = None
+    user_comment: str | None = None
     updated_at: datetime
     processed_at: datetime | None = None
 
@@ -107,6 +109,8 @@ class LLMSourceTransactionResult(BaseModel):
     action: Literal["create", "needs_attention"]
     attention_reason: str | None = None
     analyzed_transactions: list[LLMAnalyzedTransactionOutput] = Field(default_factory=list)
+    likely_wechat_payment: bool = False
+    wechat_detection_reason: str | None = None
 
 
 class LLMAnalysisResponse(BaseModel):
@@ -117,3 +121,4 @@ class AttentionType(str, Enum):
     LLM_FLAGGED = "llm_flagged"
     LOW_CONFIDENCE = "low_confidence"
     VALIDATION_FAILED = "validation_failed"
+    USER_FEEDBACK = "user_feedback"

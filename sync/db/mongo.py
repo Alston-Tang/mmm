@@ -35,3 +35,7 @@ async def ensure_indexes() -> None:
     await db.transactions.create_index("account_id")
     await db.accounts.create_index("account_id", unique=True)
     await db.accounts.create_index("item_id")
+    await db.wechat_transactions.create_index("wechat_order_id", unique=True)
+    await db.wechat_transactions.create_index("transaction_date")
+    await db.wechat_transactions.create_index("transaction_time")
+    await db.wechat_transactions.create_index("import_id")

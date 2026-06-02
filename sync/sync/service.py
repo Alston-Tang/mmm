@@ -80,6 +80,11 @@ async def sync_item(item: dict[str, Any], *, reset_cursor: bool = False) -> dict
         total_added = 0
         total_modified = 0
         total_removed = 0
+        analysis_cleanup = {
+            "analyzed_transactions": 0,
+            "analysis_reviews": 0,
+            "analysis_state": 0,
+        }
 
         for page in pages:
             stats = await TransactionRepository.apply_sync(
@@ -92,6 +97,8 @@ async def sync_item(item: dict[str, Any], *, reset_cursor: bool = False) -> dict
             total_added += len(page.added)
             total_modified += len(page.modified)
             total_removed += stats["removed"]
+            for key in analysis_cleanup:
+                analysis_cleanup[key] += stats.get(key, 0)
 
         final_cursor = pages[-1].next_cursor if pages else cursor
         if final_cursor:
@@ -107,6 +114,7 @@ async def sync_item(item: dict[str, Any], *, reset_cursor: bool = False) -> dict
             "added": total_added,
             "modified": total_modified,
             "removed": total_removed,
+            "analysis_cleanup": analysis_cleanup,
             "stored_transactions": tx_count,
             "stored_accounts": account_count,
             "cursor_updated": bool(final_cursor),

@@ -22,6 +22,7 @@ from analysis.models.schemas import (
 )
 from analysis.search.client import WebSearchClient
 from analysis.source_metadata import source_metadata_from_transaction, source_transaction_date
+from analysis.wechat.matcher import WeChatTransactionRepository, heuristic_likely_wechat
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,14 @@ class AnalysisService:
         tx_ids = [tx["transaction_id"] for tx in batch]
         logger.info("Analyzing batch of %d transactions: %s...", len(batch), tx_ids[:3])
 
+        user_guidance = await AnalysisStateRepository.get_user_comments(tx_ids)
+
         try:
-            llm_response = await self._llm.analyze_transactions(batch, pass_label="initial")
+            llm_response = await self._llm.analyze_transactions(
+                batch,
+                pass_label="initial",
+                user_guidance=user_guidance or None,
+            )
         except Exception:
             logger.exception("LLM analysis failed for batch")
             return {"processed": 0, "results": 0, "error": "llm_failed"}
@@ -74,9 +81,13 @@ class AnalysisService:
         search_retries = 0
         llm_response, search_retries = await self._retry_uncertain_with_search(batch, llm_response)
 
+        wechat_retries = 0
+        llm_response, wechat_retries = await self._retry_wechat_with_context(batch, llm_response)
+
         stats = await self._apply_response(llm_response, batch)
         stats["processed"] = len(batch)
         stats["search_retries"] = search_retries
+        stats["wechat_retries"] = wechat_retries
         return stats
 
     async def _retry_uncertain_with_search(
@@ -112,6 +123,7 @@ class AnalysisService:
                 uncertain_batch,
                 search_context=search_context,
                 pass_label="search_retry",
+                user_guidance=await AnalysisStateRepository.get_user_comments(list(uncertain_tx_ids)) or None,
             )
         except Exception:
             logger.exception("LLM search retry failed; keeping first-pass uncertain results")
@@ -129,6 +141,81 @@ class AnalysisService:
         logger.info(
             "Search retry merged: %d confident + %d retried results",
             len(confident),
+            len(retry_response.results),
+        )
+        return merged, 1
+
+    async def _retry_wechat_with_context(
+        self,
+        batch: list[dict[str, Any]],
+        initial_response: LLMAnalysisResponse,
+    ) -> tuple[LLMAnalysisResponse, int]:
+        """For likely WeChat Pay card charges, re-analyze with imported WeChat bill rows."""
+        if not self._settings.wechat_enabled:
+            return initial_response, 0
+
+        wechat_count = await WeChatTransactionRepository.count()
+        if wechat_count == 0:
+            return initial_response, 0
+
+        batch_by_id = {tx["transaction_id"]: tx for tx in batch}
+        likely_ids: set[str] = set()
+
+        for result in initial_response.results:
+            tx_id = result.transaction_id
+            source_tx = batch_by_id.get(tx_id)
+            if result.likely_wechat_payment:
+                likely_ids.add(tx_id)
+            elif source_tx and heuristic_likely_wechat(source_tx):
+                likely_ids.add(tx_id)
+
+        if not likely_ids:
+            return initial_response, 0
+
+        wechat_context = await WeChatTransactionRepository.build_context_for_batch(
+            batch,
+            likely_ids=likely_ids,
+        )
+        if not wechat_context:
+            logger.info("No WeChat bill candidates found for %d likely WeChat transactions", len(likely_ids))
+            return initial_response, 0
+
+        retry_ids = set(wechat_context.keys())
+        retry_batch = [tx for tx in batch if tx["transaction_id"] in retry_ids]
+        kept = [r for r in initial_response.results if r.transaction_id not in retry_ids]
+
+        logger.info(
+            "WeChat context available for %d transactions — re-analyzing with bill data",
+            len(retry_batch),
+        )
+
+        try:
+            retry_response = await self._llm.analyze_transactions(
+                retry_batch,
+                pass_label="wechat_retry",
+                user_guidance=await AnalysisStateRepository.get_user_comments(list(retry_ids)) or None,
+                wechat_context=wechat_context,
+            )
+        except Exception:
+            logger.exception("LLM WeChat retry failed; keeping first-pass results")
+            return initial_response, 0
+
+        retry_validation = self._validate_response(
+            retry_response,
+            list(retry_ids),
+            retry_batch,
+        )
+        if retry_validation:
+            logger.warning(
+                "WeChat retry validation failed: %s — keeping first-pass results",
+                retry_validation,
+            )
+            return initial_response, 0
+
+        merged = LLMAnalysisResponse(results=kept + retry_response.results)
+        logger.info(
+            "WeChat retry merged: %d kept + %d retried results",
+            len(kept),
             len(retry_response.results),
         )
         return merged, 1
@@ -239,6 +326,7 @@ class AnalysisService:
                     status=ProcessingStatus.NEEDS_ATTENTION,
                     analysis_id=analysis_id,
                     attention_reason=result.attention_reason,
+                    clear_user_comment=True,
                 )
                 needs_attention += 1
                 reviews_created += 1
@@ -269,6 +357,7 @@ class AnalysisService:
                     analysis_id=analysis_id,
                     confidence=worst.confidence,
                     attention_reason=attention_reason,
+                    clear_user_comment=True,
                 )
                 needs_attention += 1
                 reviews_created += 1
@@ -325,6 +414,7 @@ class AnalysisService:
                 analyzed_transaction_ids=analyzed_ids,
                 analysis_id=analysis_id,
                 confidence=min_confidence,
+                clear_user_comment=True,
             )
             resolved += 1
 
@@ -412,10 +502,16 @@ class AnalysisService:
         total_in_window = await SourceTransactionRepository.count_in_window(settings.analysis_window_days)
         analyzed_count = await AnalyzedTransactionRepository.count()
         review_count = await AnalysisReviewRepository.count()
+        wechat_count = await WeChatTransactionRepository.count()
 
         tracked = sum(status_counts.values())
-        pending = max(0, total_in_window - status_counts.get(ProcessingStatus.RESOLVED.value, 0)
-                      - status_counts.get(ProcessingStatus.NEEDS_ATTENTION.value, 0))
+        pending = max(
+            0,
+            total_in_window
+            - status_counts.get(ProcessingStatus.RESOLVED.value, 0)
+            - status_counts.get(ProcessingStatus.NEEDS_ATTENTION.value, 0)
+            - status_counts.get(ProcessingStatus.PENDING_RETRY.value, 0),
+        )
 
         return {
             "window_days": settings.analysis_window_days,
@@ -425,6 +521,8 @@ class AnalysisService:
             "by_status": status_counts,
             "analyzed_transactions_total": analyzed_count,
             "reviews_total": review_count,
+            "wechat_transactions_total": wechat_count,
             "confidence_threshold": settings.confidence_threshold,
             "search_enabled": self._search.enabled,
+            "wechat_enabled": settings.wechat_enabled,
         }

@@ -7,7 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from analysis.config import get_settings
 
 # Collections owned and written by the sync service — analysis must never modify these.
-SYNC_OWNED_COLLECTIONS = frozenset({"items", "accounts", "transactions"})
+SYNC_OWNED_COLLECTIONS = frozenset({"items", "accounts", "transactions", "wechat_transactions"})
 
 # Collections owned and written by the analysis service.
 ANALYSIS_OWNED_COLLECTIONS = frozenset({

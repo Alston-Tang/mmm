@@ -20,3 +20,15 @@ services:
       - .env
     environment:
       PORT: ${ANALYSIS_PORT:-47830}
+
+  viewer:
+    build:
+      context: .
+      dockerfile: Dockerfile.viewer
+    restart: unless-stopped
+    ports:
+      - "${VIEWER_PORT:-47831}:${VIEWER_PORT:-47831}"
+    env_file:
+      - .env
+    environment:
+      PORT: ${VIEWER_PORT:-47831}

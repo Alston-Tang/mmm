@@ -5,6 +5,7 @@ from typing import Any
 
 from sync.db.account_fields import account_summary, display_name
 from sync.db.bson_util import to_bson_safe
+from sync.db.analysis_cleanup import delete_analysis_artifacts_for_transactions
 from sync.db.mongo import get_database
 
 
@@ -181,7 +182,13 @@ class TransactionRepository:
     ) -> dict[str, int]:
         db = get_database()
         now = _utcnow()
-        stats = {"upserted": 0, "removed": 0}
+        stats: dict[str, int] = {
+            "upserted": 0,
+            "removed": 0,
+            "analyzed_transactions": 0,
+            "analysis_reviews": 0,
+            "analysis_state": 0,
+        }
 
         for tx in added + modified:
             tx_id = tx.get("transaction_id")
@@ -204,12 +211,20 @@ class TransactionRepository:
             )
             stats["upserted"] += 1
 
+        removed_ids: list[str] = []
         for tx in removed:
             tx_id = tx.get("transaction_id")
             if not tx_id:
                 continue
             await db.transactions.delete_one({"transaction_id": tx_id})
+            removed_ids.append(tx_id)
             stats["removed"] += 1
+
+        if removed_ids:
+            cleanup = await delete_analysis_artifacts_for_transactions(removed_ids)
+            stats["analyzed_transactions"] = cleanup["analyzed_transactions"]
+            stats["analysis_reviews"] = cleanup["analysis_reviews"]
+            stats["analysis_state"] = cleanup["analysis_state"]
 
         return stats
 
