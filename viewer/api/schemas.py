@@ -46,6 +46,7 @@ class TransactionViewItem(BaseModel):
     analysis_status: str | None = None
     pending_reanalysis: bool = False
     needs_attention: bool = False
+    source_available: bool = True
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

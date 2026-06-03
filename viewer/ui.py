@@ -91,6 +91,7 @@ VIEWER_HTML = """<!DOCTYPE html>
       white-space: pre-wrap;
     }
     .queued-comment-label { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.15rem; }
+    .comment-unavailable { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
     .pager { display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center; }
     .empty { text-align: center; padding: 3rem; color: var(--muted); }
     .account { font-size: 0.75rem; color: var(--muted); }
@@ -334,13 +335,20 @@ VIEWER_HTML = """<!DOCTYPE html>
       return `<div class="queued-comment"><div class="queued-comment-label">Your comment</div>${esc(comment)}</div>`;
     }
 
-    function commentField(rowId, sourceId, analyzedId, existingComment, isQueued) {
+    function commentField(rowId, sourceId, analyzedId, existingComment, isQueued, sourceAvailable) {
+      const queuedNote = isQueued ? queuedCommentDisplay(existingComment) : '';
+      if (!sourceAvailable) {
+        return `<div class="comment-cell">
+          ${queuedNote}
+          <div class="comment-unavailable">Source transaction was removed by bank sync. Re-queue is not available.</div>
+          <div class="status-msg" id="status-${rowId}"></div>
+        </div>`;
+      }
       const dataAttrs = [
         `data-row-id="${rowId}"`,
         sourceId ? `data-source-id="${sourceId}"` : '',
         analyzedId ? `data-analyzed-id="${analyzedId}"` : '',
       ].filter(Boolean).join(' ');
-      const queuedNote = isQueued ? queuedCommentDisplay(existingComment) : '';
       const prefilled = existingComment ? esc(existingComment) : '';
       const saveLabel = isQueued ? 'Update' : 'Save';
       return `<div class="comment-cell">
@@ -397,7 +405,13 @@ VIEWER_HTML = """<!DOCTYPE html>
           body: JSON.stringify(body),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Save failed');
+        if (!res.ok) {
+          const detail = data.detail;
+          const msg = Array.isArray(detail)
+            ? detail.map(d => d.msg || String(d)).join('; ')
+            : (detail || 'Save failed');
+          throw new Error(msg);
+        }
         statusEl.textContent = 'Queued for re-analysis.';
         statusEl.className = 'status-msg ok';
         setTimeout(load, 800);
@@ -444,7 +458,7 @@ VIEWER_HTML = """<!DOCTYPE html>
           <td>${esc(flow)}</td>
           <td>${item.confidence != null ? (item.confidence * 100).toFixed(0) + '%' : '—'}</td>
           <td>${sourceToggleButton(rowId, item.source_transaction_id)}</td>
-          <td>${commentField(rowId, item.source_transaction_id, analyzedId, item.user_comment, isQueued)}</td>
+          <td>${commentField(rowId, item.source_transaction_id, analyzedId, item.user_comment, isQueued, item.source_available !== false)}</td>
         </tr>${sourceDetailRow(rowId, 8)}`;
       }).join('');
 

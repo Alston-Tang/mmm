@@ -82,6 +82,7 @@ def _to_view_item(doc: dict[str, Any]) -> TransactionViewItem:
         analysis_status=doc.get("analysis_status"),
         pending_reanalysis=pending_reanalysis,
         needs_attention=needs_attention,
+        source_available=doc.get("source_available", True),
         created_at=doc.get("created_at"),
         updated_at=doc.get("updated_at"),
     )
@@ -135,6 +136,16 @@ async def _enrich_with_state(docs: list[dict[str, Any]]) -> None:
         sid = doc.get("source_transaction_id")
         if sid:
             _apply_analysis_state(doc, state_by_id.get(sid))
+
+
+async def _enrich_source_availability(docs: list[dict[str, Any]]) -> None:
+    source_ids = list(
+        {doc.get("source_transaction_id") for doc in docs if doc.get("source_transaction_id")},
+    )
+    existing = await TransactionFeedbackRepository.existing_source_transaction_ids(source_ids)
+    for doc in docs:
+        sid = doc.get("source_transaction_id")
+        doc["source_available"] = bool(sid and sid in existing)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -252,6 +263,7 @@ async def list_transactions(
                 merged_docs.extend(_tag_docs(analyzed_docs, "analyzed"))
 
     await _enrich_with_state(merged_docs)
+    await _enrich_source_availability(merged_docs)
 
     if view is None:
         page_docs, total = _merge_and_page(
@@ -320,6 +332,15 @@ async def requeue_transaction(body: RequeueRequest) -> RequeueResponse:
     )
     if not source_id:
         raise HTTPException(status_code=404, detail="Transaction not found")
+
+    if not await TransactionFeedbackRepository.source_transaction_exists(source_id):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Source transaction no longer exists. It may have been replaced when the "
+                "charge posted; re-queue the posted transaction instead."
+            ),
+        )
 
     try:
         result = await TransactionFeedbackRepository.submit_comment(

@@ -408,6 +408,24 @@ class SourceTransactionViewerRepository:
 
 class TransactionFeedbackRepository:
     @staticmethod
+    async def source_transaction_exists(source_transaction_id: str) -> bool:
+        doc = await get_collection("transactions").find_one(
+            {"transaction_id": source_transaction_id},
+            {"transaction_id": 1},
+        )
+        return doc is not None
+
+    @staticmethod
+    async def existing_source_transaction_ids(transaction_ids: list[str]) -> set[str]:
+        if not transaction_ids:
+            return set()
+        cursor = get_collection("transactions").find(
+            {"transaction_id": {"$in": transaction_ids}},
+            {"transaction_id": 1},
+        )
+        return {doc["transaction_id"] async for doc in cursor}
+
+    @staticmethod
     async def resolve_source_transaction_id(
         *,
         source_transaction_id: str | None = None,
@@ -437,6 +455,11 @@ class TransactionFeedbackRepository:
         comment = comment.strip()
         if not comment:
             raise ValueError("Comment cannot be empty")
+        if not await TransactionFeedbackRepository.source_transaction_exists(source_transaction_id):
+            raise ValueError(
+                "Source transaction no longer exists. It may have been replaced when the "
+                "charge posted; re-queue the posted transaction instead.",
+            )
 
         now = datetime.now(UTC)
         deleted = await get_writable_collection("analyzed_transactions").delete_many(
