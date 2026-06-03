@@ -15,6 +15,7 @@ from analysis.db.repository import (
 from analysis.llm.client import LLMClient
 from analysis.models.schemas import (
     AttentionType,
+    LLMAnalyzedTransactionOutput,
     LLMAnalysisResponse,
     LLMSourceTransactionResult,
     ProcessingStatus,
@@ -249,6 +250,60 @@ class AnalysisService:
         return await AnalysisStateRepository.reset_for_retry(transaction_id)
 
     @staticmethod
+    def _source_currency_code(data: dict[str, Any]) -> str:
+        code = data.get("iso_currency_code") or data.get("unofficial_currency_code")
+        if isinstance(code, str) and code.strip():
+            return code.strip().upper()
+        return "USD"
+
+    @staticmethod
+    def _amounts_close(expected: float, actual: float, *, tolerance: float) -> bool:
+        return abs(abs(expected) - abs(actual)) <= tolerance
+
+    @classmethod
+    def _amount_validation_error(
+        cls,
+        *,
+        transaction_id: str,
+        source: dict[str, Any],
+        atx: LLMAnalyzedTransactionOutput,
+    ) -> str | None:
+        data = source.get("data") or {}
+        source_amount = data.get("amount")
+        if source_amount is None:
+            return None
+
+        source_abs = abs(float(source_amount))
+        amount_tolerance = max(0.02, source_abs * 0.01)
+        currency = cls._source_currency_code(data)
+
+        if currency == "USD":
+            if not cls._amounts_close(source_abs, atx.amount_usd, tolerance=amount_tolerance):
+                return (
+                    f"transaction {transaction_id} amount_usd "
+                    f"({atx.amount_usd}) does not match source amount ({source_amount})"
+                )
+            return None
+
+        # Non-USD: compare in source currency when LLM provides original_* fields.
+        orig_currency = (atx.original_currency or "").strip().upper()
+        if atx.original_amount is not None and orig_currency == currency:
+            if not cls._amounts_close(
+                source_abs,
+                float(atx.original_amount),
+                tolerance=amount_tolerance,
+            ):
+                return (
+                    f"transaction {transaction_id} original_amount "
+                    f"({atx.original_amount} {orig_currency}) does not match source amount "
+                    f"({source_amount} {currency})"
+                )
+            return None
+
+        # Non-USD without original_* — amount_usd is a conversion; do not compare to source amount.
+        return None
+
+    @staticmethod
     def _validate_response(
         response: LLMAnalysisResponse,
         expected_ids: list[str],
@@ -281,15 +336,14 @@ class AnalysisService:
                 if batch_by_id:
                     source = batch_by_id.get(result.transaction_id)
                     if source:
-                        data = source.get("data") or {}
-                        source_amount = data.get("amount")
-                        if source_amount is not None:
-                            atx = result.analyzed_transactions[0]
-                            if abs(abs(atx.amount_usd) - abs(float(source_amount))) > 0.02:
-                                return (
-                                    f"transaction {result.transaction_id} amount_usd "
-                                    f"({atx.amount_usd}) does not match source amount ({source_amount})"
-                                )
+                        atx = result.analyzed_transactions[0]
+                        amount_error = AnalysisService._amount_validation_error(
+                            transaction_id=result.transaction_id,
+                            source=source,
+                            atx=atx,
+                        )
+                        if amount_error:
+                            return amount_error
             elif result.action == "needs_attention":
                 if not result.attention_reason:
                     return f"transaction {result.transaction_id} needs attention_reason"

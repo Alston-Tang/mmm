@@ -178,6 +178,7 @@ class LLMClient:
                     "original_description": data.get("original_description"),
                     "pending": data.get("pending"),
                     "iso_currency_code": data.get("iso_currency_code"),
+                    "unofficial_currency_code": data.get("unofficial_currency_code"),
                     "payment_channel": data.get("payment_channel"),
                     "account_display_name": tx.get("account_display_name"),
                     "account_type": tx.get("account_type"),
