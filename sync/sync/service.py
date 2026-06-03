@@ -84,6 +84,7 @@ async def sync_item(item: dict[str, Any], *, reset_cursor: bool = False) -> dict
             "analyzed_transactions": 0,
             "analysis_reviews": 0,
             "analysis_state": 0,
+            "pending_retry_state": 0,
         }
 
         for page in pages:

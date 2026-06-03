@@ -188,6 +188,7 @@ class TransactionRepository:
             "analyzed_transactions": 0,
             "analysis_reviews": 0,
             "analysis_state": 0,
+            "pending_retry_state": 0,
         }
 
         for tx in added + modified:
@@ -225,6 +226,7 @@ class TransactionRepository:
             stats["analyzed_transactions"] = cleanup["analyzed_transactions"]
             stats["analysis_reviews"] = cleanup["analysis_reviews"]
             stats["analysis_state"] = cleanup["analysis_state"]
+            stats["pending_retry_state"] = cleanup["pending_retry_state"]
 
         return stats
 
