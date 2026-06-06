@@ -131,6 +131,71 @@ class AnalyzedTransactionViewerRepository:
         return items, total
 
     @staticmethod
+    async def find_page_offset(
+        analyzed_transaction_id: str,
+        *,
+        sort_by: SortField = "transaction_date",
+        sort_order: SortOrder = "desc",
+        date_from: str | None = None,
+        date_to: str | None = None,
+        category: str | None = None,
+        flow_direction: str | None = None,
+        is_subscription: bool | None = None,
+        min_amount: float | None = None,
+        max_amount: float | None = None,
+        min_confidence: float | None = None,
+        limit: int = 50,
+    ) -> int | None:
+        doc = await AnalyzedTransactionViewerRepository.get_by_id(analyzed_transaction_id)
+        if not doc:
+            return None
+
+        if sort_by not in _SORTABLE_FIELDS:
+            sort_by = "transaction_date"
+
+        query = AnalyzedTransactionViewerRepository._build_query(
+            date_from=date_from,
+            date_to=date_to,
+            category=category,
+            flow_direction=flow_direction,
+            is_subscription=is_subscription,
+            min_amount=min_amount,
+            max_amount=max_amount,
+            min_confidence=min_confidence,
+        )
+
+        coll = get_collection("analyzed_transactions")
+        in_query = await coll.count_documents(
+            {"$and": [query, {"analyzed_transaction_id": analyzed_transaction_id}]},
+            limit=1,
+        )
+        if not in_query:
+            return None
+
+        sort_val = doc.get(sort_by)
+        if sort_val is None:
+            sort_val = ""
+
+        if sort_order == "desc":
+            before_filter: dict[str, Any] = {
+                "$or": [
+                    {sort_by: {"$gt": sort_val}},
+                    {sort_by: sort_val, "analyzed_transaction_id": {"$lt": analyzed_transaction_id}},
+                ],
+            }
+        else:
+            before_filter = {
+                "$or": [
+                    {sort_by: {"$lt": sort_val}},
+                    {sort_by: sort_val, "analyzed_transaction_id": {"$gt": analyzed_transaction_id}},
+                ],
+            }
+
+        count_query = {"$and": [query, before_filter]}
+        index = await coll.count_documents(count_query)
+        return (index // limit) * limit
+
+    @staticmethod
     async def get_by_id(analyzed_transaction_id: str) -> dict[str, Any] | None:
         return await get_collection("analyzed_transactions").find_one(
             {"analyzed_transaction_id": analyzed_transaction_id},
@@ -146,6 +211,213 @@ class AnalyzedTransactionViewerRepository:
     async def distinct_flow_directions() -> list[str]:
         values = await get_collection("analyzed_transactions").distinct("flow_direction")
         return sorted(v for v in values if v)
+
+
+class MonthSummaryRepository:
+    _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+    _FLOW_SECTIONS = (
+        ("addition", "income", "Income"),
+        ("reduction", "consumption", "Consumption"),
+        ("transfer", "transfer", "Transfer"),
+    )
+
+    @staticmethod
+    def _month_date_filter(month: str) -> dict[str, Any]:
+        if not MonthSummaryRepository._MONTH_RE.match(month):
+            raise ValueError("month must be YYYY-MM")
+        year = int(month[:4])
+        mon = int(month[5:7])
+        if mon == 12:
+            next_month = f"{year + 1}-01-01"
+        else:
+            next_month = f"{year}-{mon + 1:02d}-01"
+        return {
+            "transaction_date": {
+                "$gte": f"{month}-01",
+                "$lt": next_month,
+            },
+        }
+
+    @staticmethod
+    def _round_money(value: float) -> float:
+        return round(float(value or 0), 2)
+
+    @staticmethod
+    async def list_months() -> list[dict[str, Any]]:
+        pipeline = [
+            {"$match": {"transaction_date": {"$exists": True, "$type": "string", "$ne": ""}}},
+            {"$addFields": {"month": {"$substr": ["$transaction_date", 0, 7]}}},
+            {
+                "$group": {
+                    "_id": "$month",
+                    "transaction_count": {"$sum": 1},
+                    "income_usd": {
+                        "$sum": {
+                            "$cond": [
+                                {"$eq": ["$flow_direction", "addition"]},
+                                "$amount_usd",
+                                0,
+                            ],
+                        },
+                    },
+                    "consumption_usd": {
+                        "$sum": {
+                            "$cond": [
+                                {"$eq": ["$flow_direction", "reduction"]},
+                                "$amount_usd",
+                                0,
+                            ],
+                        },
+                    },
+                    "transfer_usd": {
+                        "$sum": {
+                            "$cond": [
+                                {"$eq": ["$flow_direction", "transfer"]},
+                                "$amount_usd",
+                                0,
+                            ],
+                        },
+                    },
+                },
+            },
+            {"$sort": {"_id": -1}},
+        ]
+        coll = get_collection("analyzed_transactions")
+        months: list[dict[str, Any]] = []
+        async for doc in coll.aggregate(pipeline):
+            months.append({
+                "month": doc["_id"],
+                "transaction_count": int(doc.get("transaction_count") or 0),
+                "income_usd": MonthSummaryRepository._round_money(doc.get("income_usd", 0)),
+                "consumption_usd": MonthSummaryRepository._round_money(
+                    doc.get("consumption_usd", 0),
+                ),
+                "transfer_usd": MonthSummaryRepository._round_money(doc.get("transfer_usd", 0)),
+            })
+        return months
+
+    @staticmethod
+    async def get_month_summary(month: str) -> dict[str, Any]:
+        match = MonthSummaryRepository._month_date_filter(month)
+        coll = get_collection("analyzed_transactions")
+
+        flow_pipeline = [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": "$flow_direction",
+                    "count": {"$sum": 1},
+                    "total_usd": {"$sum": "$amount_usd"},
+                },
+            },
+        ]
+        flows = {"income": {"count": 0, "total_usd": 0.0},
+                 "consumption": {"count": 0, "total_usd": 0.0},
+                 "transfer": {"count": 0, "total_usd": 0.0}}
+        flow_map = {
+            "addition": "income",
+            "reduction": "consumption",
+            "transfer": "transfer",
+        }
+        async for doc in coll.aggregate(flow_pipeline):
+            key = flow_map.get(doc["_id"])
+            if key:
+                flows[key] = {
+                    "count": int(doc.get("count") or 0),
+                    "total_usd": MonthSummaryRepository._round_money(doc.get("total_usd", 0)),
+                }
+
+        category_pipeline = [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": {"category": "$category", "flow_direction": "$flow_direction"},
+                    "count": {"$sum": 1},
+                    "total_usd": {"$sum": "$amount_usd"},
+                },
+            },
+        ]
+        categories_by_flow: dict[str, list[dict[str, Any]]] = {
+            "addition": [],
+            "reduction": [],
+            "transfer": [],
+        }
+        async for doc in coll.aggregate(category_pipeline):
+            group_id = doc.get("_id") or {}
+            flow_direction = group_id.get("flow_direction") or "unknown"
+            row = {
+                "category": group_id.get("category") or "(uncategorized)",
+                "count": int(doc.get("count") or 0),
+                "total_usd": MonthSummaryRepository._round_money(doc.get("total_usd", 0)),
+            }
+            categories_by_flow.setdefault(flow_direction, []).append(row)
+
+        for rows in categories_by_flow.values():
+            rows.sort(key=lambda item: (-item["total_usd"], item["category"]))
+
+        by_flow: list[dict[str, Any]] = []
+        for flow_direction, flow_key, label in MonthSummaryRepository._FLOW_SECTIONS:
+            by_flow.append({
+                "flow_direction": flow_direction,
+                "label": label,
+                "count": flows[flow_key]["count"],
+                "total_usd": flows[flow_key]["total_usd"],
+                "categories": categories_by_flow.get(flow_direction, []),
+            })
+
+        total_count = sum(f["count"] for f in flows.values())
+
+        return {
+            "month": month,
+            "transaction_count": total_count,
+            "income": flows["income"],
+            "consumption": flows["consumption"],
+            "transfer": flows["transfer"],
+            "by_flow": by_flow,
+        }
+
+    @staticmethod
+    def _category_query(category: str) -> dict[str, Any]:
+        if category == "(uncategorized)":
+            return {
+                "$or": [
+                    {"category": None},
+                    {"category": ""},
+                    {"category": {"$exists": False}},
+                ],
+            }
+        return {"category": category}
+
+    @staticmethod
+    async def list_category_transactions(
+        month: str,
+        *,
+        flow_direction: str,
+        category: str,
+    ) -> list[dict[str, Any]]:
+        if flow_direction not in {"addition", "reduction", "transfer"}:
+            raise ValueError("flow_direction must be addition, reduction, or transfer")
+
+        match: dict[str, Any] = MonthSummaryRepository._month_date_filter(month)
+        match["flow_direction"] = flow_direction
+        match.update(MonthSummaryRepository._category_query(category))
+
+        cursor = (
+            get_collection("analyzed_transactions")
+            .find(
+                match,
+                {
+                    "_id": 0,
+                    "analyzed_transaction_id": 1,
+                    "description": 1,
+                    "transaction_date": 1,
+                    "amount_usd": 1,
+                    "is_subscription": 1,
+                },
+            )
+            .sort("transaction_date", -1)
+        )
+        return [doc async for doc in cursor]
 
 
 class NeedsAttentionViewerRepository:

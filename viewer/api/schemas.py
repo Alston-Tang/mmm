@@ -71,6 +71,7 @@ class TransactionListResponse(BaseModel):
     offset: int
     sort_by: SortField
     sort_order: SortOrder
+    focus_analyzed_transaction_id: str | None = None
 
 
 class FilterOptionsResponse(BaseModel):
@@ -123,3 +124,58 @@ class SourceTransactionResponse(BaseModel):
     account_mask: str | None = None
     item_label: str | None = None
     synced_at: datetime | None = None
+
+
+class FlowTotals(BaseModel):
+    count: int
+    total_usd: float
+
+
+class CategoryTotals(BaseModel):
+    category: str
+    count: int
+    total_usd: float
+
+
+class FlowCategoryBreakdown(BaseModel):
+    flow_direction: str
+    label: str
+    count: int
+    total_usd: float
+    categories: list[CategoryTotals]
+
+
+class MonthListItem(BaseModel):
+    month: str
+    transaction_count: int
+    income_usd: float
+    consumption_usd: float
+    transfer_usd: float
+
+
+class MonthListResponse(BaseModel):
+    months: list[MonthListItem]
+
+
+class MonthSummaryResponse(BaseModel):
+    month: str
+    transaction_count: int
+    income: FlowTotals
+    consumption: FlowTotals
+    transfer: FlowTotals
+    by_flow: list[FlowCategoryBreakdown]
+
+
+class MonthCategoryTransactionItem(BaseModel):
+    analyzed_transaction_id: str
+    description: str
+    transaction_date: str | None = None
+    amount_usd: float
+    is_subscription: bool = False
+
+
+class MonthCategoryTransactionsResponse(BaseModel):
+    month: str
+    flow_direction: str
+    category: str
+    items: list[MonthCategoryTransactionItem]

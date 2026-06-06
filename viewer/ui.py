@@ -80,6 +80,10 @@ VIEWER_HTML = """<!DOCTYPE html>
     .badge.attention { background: rgba(240,160,96,0.2); color: var(--orange); }
     .badge.queued { background: rgba(107,203,138,0.18); color: var(--green); }
     tr.pending-retry td { background: rgba(107,203,138,0.05); }
+    tr.focused-row td {
+      background: rgba(91,159,212,0.12);
+      box-shadow: inset 0 0 0 2px var(--accent);
+    }
     .queued-comment {
       font-size: 0.8rem;
       color: var(--text);
@@ -132,9 +136,16 @@ VIEWER_HTML = """<!DOCTYPE html>
     .source-field dt { color: var(--muted); font-size: 0.7rem; margin: 0; }
     .source-field dd { margin: 0.1rem 0 0; word-break: break-word; }
     .source-id { font-family: ui-monospace, monospace; font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; }
+    .nav { display: flex; gap: 1rem; margin-bottom: 1rem; font-size: 0.9rem; }
+    .nav a { color: var(--accent); text-decoration: none; }
+    .nav a.active { color: var(--text); font-weight: 600; pointer-events: none; }
   </style>
 </head>
 <body>
+  <nav class="nav">
+    <a href="/" class="active">Transactions</a>
+    <a href="/month">Month summary</a>
+  </nav>
   <h1>Transaction Viewer</h1>
   <form class="filters" id="filters">
     <label>View<select name="view">
@@ -180,7 +191,25 @@ VIEWER_HTML = """<!DOCTYPE html>
     let offset = 0;
     let limit = 50;
     let total = 0;
+    let focusAnalyzedId = new URLSearchParams(location.search).get('analyzed_transaction_id');
     const sourceCache = new Map();
+
+    function applyFiltersFromUrl() {
+      const p = new URLSearchParams(location.search);
+      const fields = {
+        view: '[name=view]',
+        date_from: '[name=date_from]',
+        date_to: '[name=date_to]',
+        category: '[name=category]',
+        flow_direction: '[name=flow_direction]',
+        sort_by: '[name=sort_by]',
+        sort_order: '[name=sort_order]',
+      };
+      for (const [key, sel] of Object.entries(fields)) {
+        const val = p.get(key);
+        if (val != null) document.querySelector(sel).value = val;
+      }
+    }
 
     function esc(text) {
       if (text == null) return '';
@@ -319,6 +348,7 @@ VIEWER_HTML = """<!DOCTYPE html>
       }
       p.set('limit', limit);
       p.set('offset', offset);
+      if (focusAnalyzedId) p.set('focus_analyzed_transaction_id', focusAnalyzedId);
       return p;
     }
 
@@ -449,7 +479,7 @@ VIEWER_HTML = """<!DOCTYPE html>
         const flow = item.flow_direction || '—';
         const analyzedId = item.analyzed_transaction_id || null;
 
-        return `<tr class="${rowClass}" data-item-index="${i}">
+        return `<tr class="${rowClass}" data-item-index="${i}"${analyzedId ? ` data-analyzed-id="${esc(analyzedId)}"` : ''}>
           <td>${item.transaction_date || '—'}</td>
           <td>${fmtAmount(item, item.flow_direction)}</td>
           <td>${statusCell(item)}</td>
@@ -474,6 +504,14 @@ VIEWER_HTML = """<!DOCTYPE html>
         btn.onclick = () => saveComment(btn);
       });
       wireSourceButtonsWithMeta(wrap, items);
+    }
+
+    function highlightFocusedRow(id) {
+      if (!id) return;
+      const row = document.querySelector(`tr[data-analyzed-id="${CSS.escape(id)}"]`);
+      if (!row) return;
+      row.classList.add('focused-row');
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
 
     function renderTable(data) {
@@ -526,7 +564,23 @@ VIEWER_HTML = """<!DOCTYPE html>
     async function load() {
       const res = await fetch(api + '/transactions?' + paramsFromForm());
       const data = await res.json();
+      if (!res.ok) {
+        document.getElementById('table-wrap').innerHTML =
+          `<div class="empty">${esc(data.detail || 'Failed to load transactions')}</div>`;
+        return;
+      }
+      if (focusAnalyzedId && data.offset != null) {
+        offset = data.offset;
+      }
       renderTable(data);
+      const focusId = data.focus_analyzed_transaction_id || focusAnalyzedId;
+      if (focusId) {
+        highlightFocusedRow(focusId);
+        focusAnalyzedId = null;
+        const clean = new URL(location.href);
+        clean.searchParams.delete('analyzed_transaction_id');
+        history.replaceState(null, '', clean);
+      }
     }
 
     document.getElementById('filters').addEventListener('submit', e => {
@@ -537,7 +591,11 @@ VIEWER_HTML = """<!DOCTYPE html>
     document.getElementById('prev').onclick = () => { offset = Math.max(0, offset - limit); load(); };
     document.getElementById('next').onclick = () => { offset += limit; load(); };
 
-    loadFilters().then(load);
+    applyFiltersFromUrl();
+    loadFilters().then(() => {
+      applyFiltersFromUrl();
+      load();
+    });
   </script>
 </body>
 </html>"""

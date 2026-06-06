@@ -9,6 +9,9 @@ from viewer.api.schemas import (
     AnalyzedTransactionItem,
     FilterOptionsResponse,
     HealthResponse,
+    MonthListResponse,
+    MonthSummaryResponse,
+    MonthCategoryTransactionsResponse,
     RequeueRequest,
     RequeueResponse,
     SortField,
@@ -22,6 +25,7 @@ from viewer.config import get_settings
 from viewer.db.mongo import ping_database
 from viewer.db.repository import (
     AnalyzedTransactionViewerRepository,
+    MonthSummaryRepository,
     NeedsAttentionViewerRepository,
     PendingRetryViewerRepository,
     SourceTransactionViewerRepository,
@@ -168,6 +172,43 @@ async def filter_options() -> FilterOptionsResponse:
     return FilterOptionsResponse(categories=categories, flow_directions=flow_directions)
 
 
+@router.get("/months", response_model=MonthListResponse)
+async def list_months() -> MonthListResponse:
+    months = await MonthSummaryRepository.list_months()
+    return MonthListResponse(months=months)
+
+
+@router.get("/months/{month}", response_model=MonthSummaryResponse)
+async def get_month_summary(month: str) -> MonthSummaryResponse:
+    try:
+        summary = await MonthSummaryRepository.get_month_summary(month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return MonthSummaryResponse(**summary)
+
+
+@router.get("/months/{month}/transactions", response_model=MonthCategoryTransactionsResponse)
+async def list_month_category_transactions(
+    month: str,
+    flow_direction: str = Query(..., pattern="^(addition|reduction|transfer)$"),
+    category: str = Query(..., min_length=1),
+) -> MonthCategoryTransactionsResponse:
+    try:
+        items = await MonthSummaryRepository.list_category_transactions(
+            month,
+            flow_direction=flow_direction,
+            category=category,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return MonthCategoryTransactionsResponse(
+        month=month,
+        flow_direction=flow_direction,
+        category=category,
+        items=items,
+    )
+
+
 @router.get("/transactions", response_model=TransactionListResponse)
 async def list_transactions(
     date_from: str | None = Query(None, description="ISO date YYYY-MM-DD (inclusive)"),
@@ -192,6 +233,10 @@ async def list_transactions(
     sort_order: SortOrder = "desc",
     limit: int | None = None,
     offset: int = Query(0, ge=0),
+    focus_analyzed_transaction_id: str | None = Query(
+        None,
+        description="Jump to the page containing this analyzed transaction",
+    ),
 ) -> TransactionListResponse:
     settings = get_settings()
     page_size = limit if limit is not None else settings.default_page_size
@@ -203,6 +248,28 @@ async def list_transactions(
         view = "analyzed"
 
     analyzed_sort = sort_by if sort_by != "updated_at" else "transaction_date"
+    resolved_focus: str | None = None
+    if focus_analyzed_transaction_id:
+        view = "analyzed"
+        page_offset = await AnalyzedTransactionViewerRepository.find_page_offset(
+            focus_analyzed_transaction_id,
+            sort_by=analyzed_sort,
+            sort_order=sort_order,
+            date_from=date_from,
+            date_to=date_to,
+            category=category,
+            flow_direction=flow_direction,
+            is_subscription=is_subscription,
+            min_amount=min_amount,
+            max_amount=max_amount,
+            min_confidence=min_confidence,
+            limit=page_size,
+        )
+        if page_offset is None:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        offset = page_offset
+        resolved_focus = focus_analyzed_transaction_id
+
     merged_docs: list[dict[str, Any]] = []
     analyzed_total = 0
     needs_attention_total = 0
@@ -293,6 +360,7 @@ async def list_transactions(
         offset=offset,
         sort_by=sort_by,
         sort_order=sort_order,
+        focus_analyzed_transaction_id=resolved_focus,
     )
 
 
