@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from common.categories import merge_category_options
 from viewer.api.schemas import (
     AnalyzedTransactionItem,
     FilterOptionsResponse,
@@ -167,7 +168,8 @@ async def health() -> HealthResponse:
 
 @router.get("/filters", response_model=FilterOptionsResponse)
 async def filter_options() -> FilterOptionsResponse:
-    categories = await AnalyzedTransactionViewerRepository.distinct_categories()
+    stored = await AnalyzedTransactionViewerRepository.distinct_categories()
+    categories = merge_category_options(stored)
     flow_directions = await AnalyzedTransactionViewerRepository.distinct_flow_directions()
     return FilterOptionsResponse(categories=categories, flow_directions=flow_directions)
 

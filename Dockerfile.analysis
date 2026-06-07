@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY requirements-analysis.txt .
 RUN pip install --no-cache-dir -r requirements-analysis.txt
 
+COPY common ./common
 COPY analysis ./analysis
 
 EXPOSE 47830

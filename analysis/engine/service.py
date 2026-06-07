@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from analysis.categories import is_valid_category
 from analysis.config import get_settings
 from analysis.db.repository import (
     AnalysisReviewRepository,
@@ -344,6 +345,12 @@ class AnalysisService:
                         )
                         if amount_error:
                             return amount_error
+                        category = atx.category
+                        if not is_valid_category(category):
+                            return (
+                                f"transaction {result.transaction_id} category "
+                                f"{category!r} is not in the predefined category list"
+                            )
             elif result.action == "needs_attention":
                 if not result.attention_reason:
                     return f"transaction {result.transaction_id} needs attention_reason"

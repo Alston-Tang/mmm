@@ -1,29 +1,9 @@
 """Predefined transaction categories for LLM classification."""
 
-PREDEFINED_CATEGORIES: list[str] = [
-    "car",
-    "gas",
-    "ski",
-    "rental",
-    "utilities",
-    "electricity device",
-    "running",
-    "travel",
-    "food",
-    "coffee and beverage",
-    "daily life",
-    "773",
-    "commute",
-    "interest",
-    "capital gain/loss",
-    "payroll",
-    "healthcare",
-    "entertainment",
-    "insurance",
-    "education",
-    "shopping",
-    "transfer",
-    "fees",
-    "tax",
-    "other",
-]
+from common.categories import (
+    PREDEFINED_CATEGORIES,
+    is_valid_category,
+    merge_category_options,
+)
+
+__all__ = ["PREDEFINED_CATEGORIES", "is_valid_category", "merge_category_options"]
