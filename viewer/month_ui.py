@@ -6,15 +6,15 @@ MONTH_SUMMARY_HTML = """<!DOCTYPE html>
   <title>MMM — Month Summary</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --border: #2d3a4d;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #5b9fd4;
-      --green: #6bcb8a;
-      --red: #e07a7a;
-      --yellow: #e6c07b;
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --border: #d8dee8;
+      --text: #1a2332;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --green: #15803d;
+      --red: #b91c1c;
+      --yellow: #a16207;
     }
     * { box-sizing: border-box; }
     body {
@@ -57,7 +57,7 @@ MONTH_SUMMARY_HTML = """<!DOCTYPE html>
       padding: 0.45rem 0.6rem;
       border-radius: 6px;
       border: 1px solid var(--border);
-      background: var(--bg);
+      background: #ffffff;
       color: var(--text);
     }
     button {
@@ -90,20 +90,20 @@ MONTH_SUMMARY_HTML = """<!DOCTYPE html>
     th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
     th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
     th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    tr:hover td { background: rgba(255,255,255,0.03); }
+    tr:hover td { background: rgba(0,0,0,0.025); }
     .badge {
       display: inline-block;
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
       font-size: 0.7rem;
     }
-    .badge.addition { background: rgba(107,203,138,0.15); color: var(--green); }
-    .badge.reduction { background: rgba(224,122,122,0.15); color: var(--red); }
-    .badge.transfer { background: rgba(230,192,123,0.15); color: var(--yellow); }
+    .badge.addition { background: rgba(21,128,61,0.12); color: var(--green); }
+    .badge.reduction { background: rgba(185,28,28,0.12); color: var(--red); }
+    .badge.transfer { background: rgba(161,98,7,0.12); color: var(--yellow); }
     .empty { text-align: center; padding: 3rem; color: var(--muted); }
     .err { color: var(--red); font-size: 0.85rem; }
     .category-row { cursor: pointer; }
-    .category-row:hover td { background: rgba(255,255,255,0.05); }
+    .category-row:hover td { background: rgba(0,0,0,0.035); }
     .category-name { display: flex; align-items: center; gap: 0.4rem; }
     .chevron {
       display: inline-block;
@@ -114,13 +114,13 @@ MONTH_SUMMARY_HTML = """<!DOCTYPE html>
     .category-row.expanded .chevron { transform: rotate(90deg); }
     .category-detail-row td {
       padding: 0;
-      background: rgba(255,255,255,0.02);
+      background: rgba(0,0,0,0.02);
       border-bottom: 1px solid var(--border);
     }
     .tx-panel { padding: 0.35rem 0.75rem 0.75rem 2rem; }
     .tx-list { list-style: none; margin: 0; padding: 0; }
     .tx-list li {
-      border-bottom: 1px solid rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(0,0,0,0.06);
     }
     .tx-list li:last-child { border-bottom: none; }
     .tx-link {

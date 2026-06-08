@@ -6,16 +6,16 @@ VIEWER_HTML = """<!DOCTYPE html>
   <title>MMM — Transaction Viewer</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --border: #2d3a4d;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #5b9fd4;
-      --green: #6bcb8a;
-      --red: #e07a7a;
-      --yellow: #e6c07b;
-      --orange: #f0a060;
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --border: #d8dee8;
+      --text: #1a2332;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --green: #15803d;
+      --red: #b91c1c;
+      --yellow: #a16207;
+      --orange: #c2410c;
     }
     * { box-sizing: border-box; }
     body {
@@ -43,7 +43,7 @@ VIEWER_HTML = """<!DOCTYPE html>
       padding: 0.45rem 0.6rem;
       border-radius: 6px;
       border: 1px solid var(--border);
-      background: var(--bg);
+      background: #ffffff;
       color: var(--text);
     }
     textarea { resize: vertical; min-height: 2.2rem; }
@@ -55,7 +55,7 @@ VIEWER_HTML = """<!DOCTYPE html>
       font-weight: 500;
       align-self: end;
     }
-    button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+    button.secondary { background: #ffffff; color: var(--text); border-color: var(--border); }
     button.save-btn { padding: 0.35rem 0.6rem; font-size: 0.75rem; align-self: auto; white-space: nowrap; }
     button.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
@@ -63,8 +63,8 @@ VIEWER_HTML = """<!DOCTYPE html>
     table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
     th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
     th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
-    tr:hover td { background: rgba(255,255,255,0.03); }
-    tr.needs-attention td { background: rgba(240,160,96,0.06); }
+    tr:hover td { background: rgba(0,0,0,0.025); }
+    tr.needs-attention td { background: rgba(240,160,96,0.12); }
     .amount-reduction { color: var(--red); }
     .amount-addition { color: var(--green); }
     .amount-transfer { color: var(--yellow); }
@@ -73,15 +73,15 @@ VIEWER_HTML = """<!DOCTYPE html>
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
       font-size: 0.7rem;
-      background: rgba(91,159,212,0.15);
+      background: rgba(37,99,235,0.1);
       color: var(--accent);
     }
-    .badge.sub { background: rgba(230,192,123,0.15); color: var(--yellow); }
-    .badge.attention { background: rgba(240,160,96,0.2); color: var(--orange); }
-    .badge.queued { background: rgba(107,203,138,0.18); color: var(--green); }
-    tr.pending-retry td { background: rgba(107,203,138,0.05); }
+    .badge.sub { background: rgba(161,98,7,0.12); color: var(--yellow); }
+    .badge.attention { background: rgba(194,65,12,0.12); color: var(--orange); }
+    .badge.queued { background: rgba(21,128,61,0.12); color: var(--green); }
+    tr.pending-retry td { background: rgba(21,128,61,0.06); }
     tr.focused-row td {
-      background: rgba(91,159,212,0.12);
+      background: rgba(37,99,235,0.1);
       box-shadow: inset 0 0 0 2px var(--accent);
     }
     .queued-comment {
@@ -89,7 +89,7 @@ VIEWER_HTML = """<!DOCTYPE html>
       color: var(--text);
       margin-bottom: 0.4rem;
       padding: 0.4rem 0.55rem;
-      background: rgba(107,203,138,0.08);
+      background: rgba(21,128,61,0.08);
       border-radius: 4px;
       border-left: 2px solid var(--green);
       white-space: pre-wrap;
@@ -114,8 +114,8 @@ VIEWER_HTML = """<!DOCTYPE html>
       border-color: var(--border);
       align-self: auto;
     }
-    .source-btn.active { background: rgba(91,159,212,0.15); border-color: var(--accent); }
-    tr.source-detail-row td { padding: 0; background: rgba(91,159,212,0.04); border-bottom: 1px solid var(--border); }
+    .source-btn.active { background: rgba(37,99,235,0.1); border-color: var(--accent); }
+    tr.source-detail-row td { padding: 0; background: rgba(37,99,235,0.05); border-bottom: 1px solid var(--border); }
     .source-panel {
       padding: 0.75rem 1rem 1rem;
       font-size: 0.8rem;
